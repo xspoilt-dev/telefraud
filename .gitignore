@@ -1,0 +1,20 @@
+# Secrets — keep real tokens out of version control.
+.env
+.env.local
+.env.*.local
+
+# Generated backups.
+backups/
+
+# Build artifacts.
+/bin/
+*.exe
+*.test
+*.out
+telefraud
+
+# Logs.
+*.log
+
+# Editor / OS noise.
+.DS_Store

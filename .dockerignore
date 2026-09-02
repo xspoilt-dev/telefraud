@@ -1,0 +1,12 @@
+# Never bake secrets or local state into the image.
+.git
+.gitignore
+.env
+.env.*
+backups/
+docs/
+scripts/
+*.md
+Dockerfile
+docker-compose.yml
+.dockerignore
