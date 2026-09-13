@@ -1,9 +1,11 @@
 module telefraud
 
-go 1.25.0
+go 1.24.0
+
+toolchain go1.24.4
 
 require (
-	github.com/jackc/pgx/v5 v5.10.0
+	github.com/jackc/pgx/v5 v5.7.2
 	github.com/joho/godotenv v1.5.1
 	github.com/mymmrac/telego v0.32.0
 )
@@ -26,7 +28,8 @@ require (
 	github.com/valyala/fasthttp v1.58.0 // indirect
 	github.com/valyala/fastjson v1.6.4 // indirect
 	golang.org/x/arch v0.6.0 // indirect
+	golang.org/x/crypto v0.31.0 // indirect
 	golang.org/x/sync v0.17.0 // indirect
-	golang.org/x/sys v0.27.0 // indirect
+	golang.org/x/sys v0.28.0 // indirect
 	golang.org/x/text v0.29.0 // indirect
 )
