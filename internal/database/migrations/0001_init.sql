@@ -9,6 +9,7 @@ CREATE TABLE IF NOT EXISTS users (
     first_name  VARCHAR(128) NOT NULL,
     last_name   VARCHAR(128),
     role        VARCHAR(32)  NOT NULL DEFAULT 'USER', -- 'USER' | 'ADMIN' | 'SUPERADMIN'
+    language    VARCHAR(10)  NOT NULL DEFAULT 'en',   -- 'en' | 'bn' | 'hi'
     is_banned   BOOLEAN      NOT NULL DEFAULT FALSE,
     created_at  TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
     updated_at  TIMESTAMPTZ  NOT NULL DEFAULT NOW()
@@ -79,6 +80,7 @@ CREATE TABLE IF NOT EXISTS groups (
     group_id            BIGINT       PRIMARY KEY,
     title               VARCHAR(255) NOT NULL,
     username            VARCHAR(64),
+    language            VARCHAR(10)  NOT NULL DEFAULT 'en',   -- 'en' | 'bn' | 'hi'
     auto_ban_enabled    BOOLEAN      NOT NULL DEFAULT TRUE,
     auto_delete_enabled BOOLEAN      NOT NULL DEFAULT TRUE,
     scan_on_join_enabled BOOLEAN     NOT NULL DEFAULT TRUE,
@@ -88,6 +90,10 @@ CREATE TABLE IF NOT EXISTS groups (
     joined_at           TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
     updated_at          TIMESTAMPTZ  NOT NULL DEFAULT NOW()
 );
+
+-- Migration safety for existing tables
+ALTER TABLE users ADD COLUMN IF NOT EXISTS language VARCHAR(10) NOT NULL DEFAULT 'en';
+ALTER TABLE groups ADD COLUMN IF NOT EXISTS language VARCHAR(10) NOT NULL DEFAULT 'en';
 
 -- 7. Moderation logs — audit trail for group enforcement.
 CREATE TABLE IF NOT EXISTS moderation_logs (

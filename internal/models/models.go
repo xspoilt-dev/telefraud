@@ -56,6 +56,56 @@ const (
 	ThreatCritical = "CRITICAL"
 )
 
+// Roles.
+const (
+	RoleUser       = "USER"
+	RoleAdmin      = "ADMIN"
+	RoleSuperAdmin = "SUPERADMIN"
+)
+
+// Report statuses.
+const (
+	StatusReportPending       = "PENDING"
+	StatusReportApproved      = "APPROVED"
+	StatusReportRejected      = "REJECTED"
+	StatusReportInfoRequested = "INFO_REQUESTED"
+)
+
+// Moderation actions.
+const (
+	ActionBan           = "BAN"
+	ActionKick          = "KICK"
+	ActionWarn          = "WARN"
+	ActionDeleteMessage = "DELETE_MESSAGE"
+	ActionSilent        = "SILENT"
+)
+
+// Report & scam categories.
+const (
+	CategoryFinancial     = "Financial Fraud"
+	CategoryImpersonation = "Impersonation"
+	CategoryCrypto        = "Crypto / Phishing"
+	CategoryFakeStore     = "Fake Store / Goods"
+	CategoryOther         = "Other Abuse"
+)
+
+// ScammerWithIdentifiers aggregates a canonical scammer with all associated identifiers.
+type ScammerWithIdentifiers struct {
+	Scammer     Scammer             `json:"scammer"`
+	Identifiers []ScammerIdentifier `json:"identifiers"`
+}
+
+// ScammerImportItem represents a single record to be imported.
+type ScammerImportItem struct {
+	UserID      int64  `json:"user_id,omitempty" csv:"user_id"`
+	Username    string `json:"username,omitempty" csv:"username"`
+	Phone       string `json:"phone,omitempty" csv:"phone"`
+	ThreatLevel string `json:"threat_level,omitempty" csv:"threat_level"`
+	Category    string `json:"category,omitempty" csv:"category"`
+	Reason      string `json:"reason,omitempty" csv:"reason"`
+	Status      string `json:"status,omitempty" csv:"status"`
+}
+
 // Scammer is the canonical fraudster entity. All identifiers hang off it, so
 // the record survives username and phone changes.
 type Scammer struct {
@@ -91,6 +141,7 @@ type User struct {
 	LastName  string    `json:"last_name,omitempty" db:"last_name"`
 	Role      string    `json:"role" db:"role"`
 	IsBanned  bool      `json:"is_banned" db:"is_banned"`
+	Language  string    `json:"language" db:"language"`
 	CreatedAt time.Time `json:"created_at" db:"created_at"`
 	UpdatedAt time.Time `json:"updated_at" db:"updated_at"`
 }
@@ -129,6 +180,7 @@ type Group struct {
 	GroupID           int64      `json:"group_id" db:"group_id"`
 	Title             string     `json:"title" db:"title"`
 	Username          string     `json:"username,omitempty" db:"username"`
+	Language          string     `json:"language" db:"language"`
 	AutoBanEnabled    bool       `json:"auto_ban_enabled" db:"auto_ban_enabled"`
 	AutoDeleteEnabled bool       `json:"auto_delete_enabled" db:"auto_delete_enabled"`
 	ScanOnJoinEnabled bool       `json:"scan_on_join_enabled" db:"scan_on_join_enabled"`

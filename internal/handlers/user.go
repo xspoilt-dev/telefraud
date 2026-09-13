@@ -11,35 +11,91 @@ import (
 	"github.com/mymmrac/telego"
 	tu "github.com/mymmrac/telego/telegoutil"
 
+	"telefraud/internal/i18n"
 	"telefraud/internal/models"
 	"telefraud/internal/services/identity"
 )
 
-func (h *Handlers) handleStart(ctx context.Context, chatID int64) {
-	text := fmt.Sprintf(
-		"<b>🛡️ Welcome to @telefraudbot</b>\n\n"+
-			"Your community defense network against Telegram fraud.\n\n"+
-			"<b>Developer:</b> %s (%s)\n"+
-			"Use the menu below to report scammers, check identifiers, or view statistics.",
+func (h *Handlers) handleStart(ctx context.Context, userID, chatID int64, text, userLang string) {
+	if strings.HasPrefix(text, "/start rep_") {
+		target := strings.TrimPrefix(text, "/start rep_")
+		h.startReportWizardWithTarget(ctx, userID, chatID, target, userLang)
+		return
+	}
+	if text == "/start report" {
+		h.startReportWizard(ctx, userID, chatID, userLang)
+		return
+	}
+
+	welcomeText := i18n.Format(userLang, "start_welcome",
 		html.EscapeString(h.Cfg.DeveloperName), html.EscapeString(h.Cfg.DeveloperUsername),
 	)
-	msg := tu.Message(tu.ID(chatID), text).
+
+	msg := tu.Message(tu.ID(chatID), welcomeText).
 		WithParseMode(telego.ModeHTML).
-		WithReplyMarkup(h.Menu)
+		WithReplyMarkup(h.mainMenu(userLang))
 	_, _ = h.Bot.SendMessage(msg)
 }
 
-func (h *Handlers) handleDev(ctx context.Context, chatID int64) {
+func (h *Handlers) handleDev(ctx context.Context, chatID int64, userLang string) {
 	uptime := formatUptime(time.Since(h.StartTime))
-	text := fmt.Sprintf(
-		"<b>🤖 @telefraudbot System Info</b>\n\n"+
-			"<b>Lead Developer:</b> %s (<code>%s</code>)\n"+
-			"<b>Uptime:</b> %s\n\n"+
-			"<i>Designed &amp; Built for Telegram Group Safety.</i>",
+	text := i18n.Format(userLang, "dev_info",
 		html.EscapeString(h.Cfg.DeveloperName), html.EscapeString(h.Cfg.DeveloperUsername),
 		uptime,
 	)
 	h.sendHTML(ctx, chatID, text)
+}
+
+func (h *Handlers) handleLanguageSelect(ctx context.Context, chatID, userID int64, userLang string) {
+	_ = userID
+	text := i18n.Get(userLang, "lang_select_title")
+	markup := tu.InlineKeyboard(
+		tu.InlineKeyboardRow(
+			tu.InlineKeyboardButton("🇺🇸 English").WithCallbackData("usr_lang:en"),
+			tu.InlineKeyboardButton("🇧🇩 বাংলা (Bengali)").WithCallbackData("usr_lang:bn"),
+		),
+		tu.InlineKeyboardRow(
+			tu.InlineKeyboardButton("🇮🇳 हिन्दी (Hindi)").WithCallbackData("usr_lang:hi"),
+		),
+	)
+
+	msg := tu.Message(tu.ID(chatID), text).
+		WithParseMode(telego.ModeHTML).
+		WithReplyMarkup(markup)
+	_, _ = h.Bot.SendMessage(msg)
+}
+
+func (h *Handlers) handleUserLanguageCallback(ctx context.Context, query telego.CallbackQuery, newLang string) {
+	userID := query.From.ID
+	chatID := int64(0)
+	if query.Message != nil {
+		chatID = query.Message.GetChat().ID
+	}
+
+	normLang := i18n.NormalizeLanguage(newLang)
+	_ = h.Store.SetUserLanguage(ctx, userID, normLang)
+
+	langName := i18n.LanguageDisplayName(normLang)
+	_ = h.Bot.AnswerCallbackQuery(&telego.AnswerCallbackQueryParams{
+		CallbackQueryID: query.ID,
+		Text:            "Language updated to " + langName,
+	})
+
+	confirmText := i18n.Format(normLang, "lang_updated_user", langName)
+	if query.Message != nil {
+		_, _ = h.Bot.EditMessageText(&telego.EditMessageTextParams{
+			ChatID:    tu.ID(chatID),
+			MessageID: query.Message.GetMessageID(),
+			Text:      confirmText,
+			ParseMode: telego.ModeHTML,
+		})
+	}
+
+	// Refresh persistent reply keyboard in new language
+	menuMsg := tu.Message(tu.ID(chatID), i18n.Format(normLang, "start_welcome", html.EscapeString(h.Cfg.DeveloperName), html.EscapeString(h.Cfg.DeveloperUsername))).
+		WithParseMode(telego.ModeHTML).
+		WithReplyMarkup(h.mainMenu(normLang))
+	_, _ = h.Bot.SendMessage(menuMsg)
 }
 
 func formatUptime(d time.Duration) string {
@@ -66,32 +122,73 @@ func formatUptime(d time.Duration) string {
 	return strings.Join(parts, " ")
 }
 
-func (h *Handlers) handleHelp(ctx context.Context, chatID int64) {
-	h.sendHTML(ctx, chatID,
-		"<b>❓ Help &amp; FAQ</b>\n\n"+
-			"Use <b>🔍 Check Identifier</b> to look up an account by username, user ID, or phone number.\n\n"+
-			"Use <b>🛡️ Report Fraudster</b> to report a scam account with proof.",
-	)
+func (h *Handlers) handleHelp(ctx context.Context, chatID int64, userLang string) {
+	h.sendHTML(ctx, chatID, i18n.Get(userLang, "help_text"))
 }
 
-func (h *Handlers) promptCheck(ctx context.Context, chatID int64) {
-	h.sendHTML(ctx, chatID,
-		"<b>🔍 Check Identifier</b>\n\n"+
-			"Send an identifier to look up:\n"+
-			"• Username: <code>@handle</code>\n"+
-			"• User ID: <code>123456789</code>\n"+
-			"• Phone: <code>+1234567890</code>\n\n"+
-			"Example: <code>/check @handle</code>",
-	)
+func (h *Handlers) handleMyReports(ctx context.Context, userID, chatID int64, userLang string) {
+	reports, err := h.Store.GetUserReports(ctx, userID)
+	if err != nil {
+		h.sendHTML(ctx, chatID, "<b>⚠️ Failed to fetch submissions. Try again later.</b>")
+		return
+	}
+
+	if len(reports) == 0 {
+		h.sendHTML(ctx, chatID, i18n.Get(userLang, "myreports_empty"))
+		return
+	}
+
+	var b strings.Builder
+	b.WriteString(i18n.Get(userLang, "myreports_header"))
+	for _, r := range reports {
+		statusEmoji := "⏳"
+		switch r.Status {
+		case "APPROVED":
+			statusEmoji = "✅"
+		case "REJECTED":
+			statusEmoji = "❌"
+		case "INFO_REQUESTED":
+			statusEmoji = "❓"
+		}
+		fmt.Fprintf(&b, "• <b>Report #%d</b>\n", r.ID)
+		fmt.Fprintf(&b, "  <b>Target:</b> <code>%s</code>\n", html.EscapeString(r.Target))
+		fmt.Fprintf(&b, "  <b>Category:</b> %s\n", html.EscapeString(r.Category))
+		fmt.Fprintf(&b, "  <b>Status:</b> %s %s\n", statusEmoji, html.EscapeString(r.Status))
+		fmt.Fprintf(&b, "  <b>Submitted:</b> %s\n\n", r.CreatedAt.Format("Jan 02, 2006 15:04 UTC"))
+	}
+	h.sendHTML(ctx, chatID, b.String())
 }
 
-func (h *Handlers) handleCheck(ctx context.Context, chatID int64, raw string) {
+func (h *Handlers) handleStats(ctx context.Context, chatID int64, userLang string) {
+	_ = userLang
+	stats, err := h.Store.GetGlobalStats(ctx)
+	if err != nil {
+		h.sendHTML(ctx, chatID, "<b>⚠️ Failed to fetch statistics. Try again later.</b>")
+		return
+	}
+
+	text := fmt.Sprintf(
+		"<b>📊 Global Fraud Statistics</b>\n\n"+
+			"<b>🛡️ Verified Blacklisted Scammers:</b> <code>%d</code>\n"+
+			"<b>📋 Total Reports Submitted:</b> <code>%d</code>\n"+
+			"<b>⏳ Pending Admin Reviews:</b> <code>%d</code>\n"+
+			"<b>👥 Protected Groups:</b> <code>%d</code>\n"+
+			"<b>👤 Registered Users:</b> <code>%d</code>\n\n"+
+			"<i>Database updated continuously in real-time.</i>",
+		stats.VerifiedScammers, stats.TotalReports, stats.PendingReports, stats.ProtectedGroups, stats.TotalUsers,
+	)
+	h.sendHTML(ctx, chatID, text)
+}
+
+func (h *Handlers) promptCheck(ctx context.Context, userID, chatID int64, userLang string) {
+	h.Sessions.SetState(userID, StateCheckWaitInput)
+	h.sendHTML(ctx, chatID, i18n.Get(userLang, "check_prompt"))
+}
+
+func (h *Handlers) handleCheck(ctx context.Context, chatID int64, raw string, userLang string) {
 	cand, ok := parseCandidates(raw)
 	if !ok {
-		h.sendHTML(ctx, chatID,
-			"<b>⚠️ Unrecognized identifier.</b>\n\n"+
-				"Send a username (<code>@handle</code>), user ID, or phone number (<code>+…</code>).",
-		)
+		h.sendHTML(ctx, chatID, i18n.Get(userLang, "check_invalid"))
 		return
 	}
 
@@ -100,16 +197,15 @@ func (h *Handlers) handleCheck(ctx context.Context, chatID int64, raw string) {
 		h.sendHTML(ctx, chatID, "<b>⚠️ Lookup failed, try again later.</b>")
 		return
 	}
-	if errors.Is(err, identity.ErrNoMatch) || scam == nil {
-		h.sendHTML(ctx, chatID, "<b>✅ No fraud record found.</b>\n\nThe identifier is not in our blacklist.")
+	if errors.Is(err, identity.ErrNoMatch) || scam == nil || scam.Status != models.StatusVerified {
+		h.sendHTML(ctx, chatID, i18n.Get(userLang, "check_clean"))
 		return
 	}
 
 	h.renderScammer(ctx, chatID, scam)
 }
 
-// renderScammer shows a resolved scammer with every linked identifier, so a
-// user can see the current username as well as the immutable user id.
+// renderScammer shows a resolved scammer with every linked identifier.
 func (h *Handlers) renderScammer(ctx context.Context, chatID int64, scam *models.Scammer) {
 	_, idents, err := h.Identity.Get(ctx, scam.ID)
 	if err != nil {
@@ -117,42 +213,43 @@ func (h *Handlers) renderScammer(ctx context.Context, chatID int64, scam *models
 		return
 	}
 
-	var userID, username, phone string
+	var userIDs, usernames, phones []string
 	for _, i := range idents {
 		switch i.Kind {
 		case models.KindUserID:
-			userID = i.Value
+			userIDs = append(userIDs, i.Value)
 		case models.KindUsername:
-			username = "@" + i.Value
+			usernames = append(usernames, "@"+i.Value)
 		case models.KindPhone:
-			phone = i.Value
+			phones = append(phones, i.Value)
 		}
 	}
 
 	var b strings.Builder
-	b.WriteString("<b>⚠️ Fraud Record Found</b>\n\n")
-	if userID != "" {
-		fmt.Fprintf(&b, "<b>User ID:</b> <code>%s</code>\n", html.EscapeString(userID))
+	b.WriteString("<b>⚠️ VERIFIED FRAUD RECORD FOUND</b>\n\n")
+	if len(userIDs) > 0 {
+		fmt.Fprintf(&b, "<b>User ID(s):</b> <code>%s</code>\n", html.EscapeString(strings.Join(userIDs, ", ")))
 	}
-	if username != "" {
-		fmt.Fprintf(&b, "<b>Username:</b> <code>%s</code>\n", html.EscapeString(username))
+	if len(usernames) > 0 {
+		fmt.Fprintf(&b, "<b>Username(s):</b> <code>%s</code>\n", html.EscapeString(strings.Join(usernames, ", ")))
 	}
-	if phone != "" {
-		fmt.Fprintf(&b, "<b>Phone:</b> <code>%s</code>\n", html.EscapeString(phone))
+	if len(phones) > 0 {
+		fmt.Fprintf(&b, "<b>Phone(s):</b> <code>%s</code>\n", html.EscapeString(strings.Join(phones, ", ")))
 	}
-	fmt.Fprintf(&b, "<b>Status:</b> %s\n", html.EscapeString(scam.Status))
+	fmt.Fprintf(&b, "<b>Status:</b> %s 🚫\n", html.EscapeString(scam.Status))
 	fmt.Fprintf(&b, "<b>Threat Level:</b> %s\n", html.EscapeString(scam.ThreatLevel))
-	fmt.Fprintf(&b, "<b>Reports:</b> %d\n", scam.ReportCount)
+	if scam.Category != "" {
+		fmt.Fprintf(&b, "<b>Category:</b> %s\n", html.EscapeString(scam.Category))
+	}
+	fmt.Fprintf(&b, "<b>Verified Reports:</b> %d\n", scam.ReportCount)
 	if scam.Reason != "" {
 		fmt.Fprintf(&b, "<b>Reason:</b> %s\n", html.EscapeString(scam.Reason))
 	}
+	b.WriteString("\n<i>Exercise extreme caution. Do not send funds or engage in transactions with this entity.</i>")
 	h.sendHTML(ctx, chatID, b.String())
 }
 
-// parseCandidates classifies a raw user input as a username, user id, or phone
-// number, returning normalized candidates. Precedence: '@' prefix → username,
-// '+' prefix → phone, contains a letter/underscore → username, pure digits →
-// user id (phone numbers should be sent with a '+' or country code).
+// parseCandidates classifies a raw user input as a username, user id, or phone.
 func parseCandidates(raw string) (identity.Candidates, bool) {
 	raw = strings.TrimSpace(raw)
 	switch {
@@ -192,4 +289,46 @@ func hasLetterOrUnderscore(s string) bool {
 		}
 	}
 	return false
+}
+
+func (h *Handlers) checkChannelMembership(ctx context.Context, userID int64) (bool, error) {
+	_ = ctx
+	if h.Cfg.RequiredChannelID == 0 {
+		return true, nil
+	}
+
+	member, err := h.Bot.GetChatMember(&telego.GetChatMemberParams{
+		ChatID: tu.ID(h.Cfg.RequiredChannelID),
+		UserID: userID,
+	})
+	if err != nil {
+		return false, err
+	}
+
+	status := member.MemberStatus()
+	switch status {
+	case "creator", "administrator", "member", "restricted":
+		return true, nil
+	default:
+		return false, nil
+	}
+}
+
+func (h *Handlers) promptMustJoin(ctx context.Context, chatID int64, userLang string) {
+	_ = ctx
+	text := i18n.Format(userLang, "channel_required", html.EscapeString(h.Cfg.RequiredChannelLink))
+
+	inlineMarkup := tu.InlineKeyboard(
+		tu.InlineKeyboardRow(
+			tu.InlineKeyboardButton(i18n.Get(userLang, "btn_join_channel")).WithURL(h.Cfg.RequiredChannelLink),
+		),
+		tu.InlineKeyboardRow(
+			tu.InlineKeyboardButton(i18n.Get(userLang, "btn_i_have_joined")).WithCallbackData("check_subscription"),
+		),
+	)
+
+	msg := tu.Message(tu.ID(chatID), text).
+		WithParseMode(telego.ModeHTML).
+		WithReplyMarkup(inlineMarkup)
+	_, _ = h.Bot.SendMessage(msg)
 }

@@ -24,6 +24,8 @@ type Config struct {
 	DailyGroupScanCron  string
 	EnableNewMemberScan bool
 	Debug               bool
+	RequiredChannelID   int64
+	RequiredChannelLink string
 }
 
 // LoadConfig reads configuration settings from environment variables.
@@ -81,6 +83,16 @@ func LoadConfig() (*Config, error) {
 		devUsername = "@xspoilt"
 	}
 
+	reqChannelID, _ := strconv.ParseInt(os.Getenv("REQUIRED_CHANNEL_ID"), 10, 64)
+	if reqChannelID == 0 {
+		reqChannelID = -1004458146162
+	}
+
+	reqChannelLink := os.Getenv("REQUIRED_CHANNEL_LINK")
+	if reqChannelLink == "" {
+		reqChannelLink = "https://t.me/telefraud_info"
+	}
+
 	return &Config{
 		BotToken:            token,
 		DatabaseURL:         dbURL,
@@ -95,6 +107,8 @@ func LoadConfig() (*Config, error) {
 		DailyGroupScanCron:  "0 3 * * *", // Daily group scan at 03:00 AM
 		EnableNewMemberScan: true,
 		Debug:               debug,
+		RequiredChannelID:   reqChannelID,
+		RequiredChannelLink: reqChannelLink,
 	}, nil
 }
 
