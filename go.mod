@@ -1,6 +1,8 @@
 module telefraud
 
-go 1.23
+go 1.24.0
+
+toolchain go1.24.4
 
 require (
 	github.com/jackc/pgx/v5 v5.7.2

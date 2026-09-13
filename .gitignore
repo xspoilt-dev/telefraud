@@ -11,7 +11,7 @@ backups/
 *.exe
 *.test
 *.out
-telefraud
+/telefraud
 
 # Logs.
 *.log
